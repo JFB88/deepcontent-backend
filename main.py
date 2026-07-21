@@ -101,6 +101,7 @@ async def generate_calendar(payload: GenerateRequest):
             "pillars": [p.model_dump() for p in pillars],
         },
         "days": [d.model_dump() for d in days],
+    }
     import os
     if __name__ == "__main__":
     import uvicorn
