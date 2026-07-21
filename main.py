@@ -13,6 +13,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class GenerateRequest(BaseModel):
     activity: str = Field(..., examples=["consultant B2B"])
     audience: str = Field(..., examples=["founders SaaS"])
@@ -21,10 +22,12 @@ class GenerateRequest(BaseModel):
     tone: str = Field(..., examples=["direct, clair, pro"])
     angle: str = Field("", examples=["contenu de fond et preuve"])
 
+
 class Pillar(BaseModel):
     name: str
     description: str
     value_logic: str
+
 
 class DayItem(BaseModel):
     day: int
@@ -37,13 +40,16 @@ class DayItem(BaseModel):
     evergreen: bool
     status: str = "idea"
 
+
 @app.get("/")
 async def root():
     return {"message": "DeepContent AI backend is running"}
 
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
 
 @app.post("/api/generate-calendar")
 async def generate_calendar(payload: GenerateRequest):
@@ -102,8 +108,3 @@ async def generate_calendar(payload: GenerateRequest):
         },
         "days": [d.model_dump() for d in days],
     }
-    import os
-    if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
