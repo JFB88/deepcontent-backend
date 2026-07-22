@@ -3,7 +3,8 @@ from typing import List, Literal
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from openai import OpenAI
+from google import genai
+from google.genai import types
 from pydantic import BaseModel, Field
 
 app = FastAPI(title="DeepContent AI", version="1.1.0")
@@ -20,7 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 
 class GenerateRequest(BaseModel):
@@ -118,19 +119,23 @@ Angle souhaité : {payload.angle or "non précisé"}
 Piliers disponibles :
 {[p.model_dump() for p in pillars]}
 
-Retourne uniquement les 30 objets day dans le format demandé.
+Retourne uniquement un objet JSON valide au format demandé, avec une clé "days".
 """
 
-    response = client.responses.parse(
-        model="gpt-4.1-mini",
-        input=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
+    response = client.models.generate_content(
+        model="gemini-2.5-flash-lite",
+        contents=[
+            system_prompt,
+            user_prompt,
         ],
-        text_format=CalendarResponse,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=CalendarResponse,
+            temperature=0.9,
+        ),
     )
 
-    parsed = response.output_parsed
+    parsed = response.parsed
 
     return {
         "meta": {
