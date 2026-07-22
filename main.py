@@ -119,7 +119,7 @@ Retourne uniquement un objet JSON valide au format demandé, avec une clé "days
 """
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash-lite",
+        model="gemini-3.1-flash-lite",
         contents=[
             system_prompt,
             user_prompt,
