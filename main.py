@@ -1,13 +1,14 @@
 import os
-from typing import List, Literal
+from datetime import datetime, timezone
+from typing import Dict, List, Literal
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
 
-app = FastAPI(title="DeepContent AI", version="1.3.0")
+app = FastAPI(title="DeepContent AI", version="1.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -18,6 +19,9 @@ app.add_middleware(
 )
 
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+
+DAILY_LIMIT = 4
+usage_store: Dict[str, Dict[str, int | str]] = {}
 
 
 class GenerateRequest(BaseModel):
@@ -62,8 +66,66 @@ async def health():
     return {"status": "ok"}
 
 
+def get_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def get_today_key() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def get_remaining_generations(ip: str) -> int:
+    today = get_today_key()
+    current = usage_store.get(ip)
+
+    if not current or current.get("date") != today:
+        usage_store[ip] = {"date": today, "count": 0}
+        return DAILY_LIMIT
+
+    return max(0, DAILY_LIMIT - int(current["count"]))
+
+
+def consume_generation(ip: str) -> int:
+    today = get_today_key()
+    current = usage_store.get(ip)
+
+    if not current or current.get("date") != today:
+        usage_store[ip] = {"date": today, "count": 0}
+
+    if int(usage_store[ip]["count"]) >= DAILY_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "message": "Limite quotidienne atteinte. Reviens demain.",
+                "remaining": 0,
+                "daily_limit": DAILY_LIMIT,
+            },
+        )
+
+    usage_store[ip]["count"] = int(usage_store[ip]["count"]) + 1
+    return max(0, DAILY_LIMIT - int(usage_store[ip]["count"]))
+
+
 @app.post("/api/generate-calendar")
-async def generate_calendar(payload: GenerateRequest):
+async def generate_calendar(payload: GenerateRequest, request: Request):
+    client_ip = get_client_ip(request)
+    remaining_before = get_remaining_generations(client_ip)
+
+    if remaining_before <= 0:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "message": "Limite quotidienne atteinte. Reviens demain.",
+                "remaining": 0,
+                "daily_limit": DAILY_LIMIT,
+            },
+        )
+
     pillars = [
         Pillar(
             name="Fondations",
@@ -174,18 +236,6 @@ Règles de style :
 - Chaque idée doit avoir un intérêt clair pour l’audience.
 - Si possible, fais sentir la tension business, la réalité du terrain ou la psychologie du prospect.
 
-Exemple de bon niveau de précision :
-- "Pourquoi la plupart des consultants B2B publient beaucoup mais signent peu"
-- "L’objection 'LinkedIn ne m’apporte rien' cache souvent 3 problèmes très précis"
-- "Le type de preuve le plus sous-utilisé par les indépendants B2B"
-- "Ce qu’on comprend sur un marché quand on relit 20 appels de découverte"
-
-Exemple de mauvais niveau :
-- "L’importance du personal branding"
-- "Comment réussir sur LinkedIn"
-- "Pourquoi le contenu est important"
-- "Les clés d’une bonne stratégie"
-
 Retourne uniquement le JSON final.
 """
 
@@ -199,6 +249,7 @@ Retourne uniquement le JSON final.
         ),
     )
 
+    remaining_after = consume_generation(client_ip)
     parsed = response.parsed
 
     return {
@@ -211,5 +262,9 @@ Retourne uniquement le JSON final.
             "angle": payload.angle,
             "pillars": [p.model_dump() for p in pillars],
         },
+        "quota": {
+            "daily_limit": DAILY_LIMIT,
+            "remaining": remaining_after,
+        },
         "days": [d.model_dump() for d in parsed.days],
-    } 
+        }
